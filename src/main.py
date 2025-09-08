@@ -5,6 +5,7 @@ import argparse
 from pathlib import Path
 
 import numpy as np
+from rdkit.Chem import Descriptors
 
 from data_preparation import load_and_sample, featurize
 from model_training import cross_validate, feature_importance, summarize_results
@@ -41,6 +42,30 @@ def main() -> None:
 
     # Step 2: featurize
     X, y, smiles = featurize(combined)
+    excluded = {
+        "BalabanJ",
+        "BertzCT",
+        "Chi0",
+        "Chi0n",
+        "Chi0v",
+        "Chi1",
+        "Chi1n",
+        "Chi1v",
+        "Chi2n",
+        "Chi2v",
+        "Chi3n",
+        "Chi3v",
+        "Chi4n",
+        "Chi4v",
+        "HallKierAlpha",
+        "Ipc",
+        "Kappa1",
+        "Kappa2",
+        "Kappa3",
+    }
+    descriptor_names = [
+        name for name, _ in Descriptors._descList if "EState" not in name and name not in excluded
+    ]
     print(f"Generated features for {len(smiles)} molecules")
 
     # Step 3: model training with cross-validation
@@ -51,9 +76,10 @@ def main() -> None:
     # Step 4: evaluate feature importance on full dataset
     importances = feature_importance(X, y, seed=1000)
     top_idx = np.argsort(importances)[::-1][:10]
-    print("Top 10 fingerprint bits by importance:")
+    print("Top 10 descriptors by importance:")
     for idx in top_idx:
-        print(f"  fp{idx}: {importances[idx]:.4f}")
+        name = descriptor_names[idx] if idx < len(descriptor_names) else str(idx)
+        print(f"  {name}: {importances[idx]:.4f}")
 
 
 if __name__ == "__main__":
