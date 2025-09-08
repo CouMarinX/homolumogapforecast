@@ -6,9 +6,33 @@ from typing import Iterable, List, Tuple
 
 import numpy as np
 import pandas as pd
-from rdkit import Chem, DataStructs
-from rdkit.Chem import AllChem
+from rdkit import Chem
+from rdkit.Chem import Descriptors
+from rdkit.ML.Descriptors import MoleculeDescriptors
 
+
+# Descriptors that are known to cause issues with the current RDKit build
+_EXCLUDED_DESCRIPTORS = {
+    "BalabanJ",
+    "BertzCT",
+    "Chi0",
+    "Chi0n",
+    "Chi0v",
+    "Chi1",
+    "Chi1n",
+    "Chi1v",
+    "Chi2n",
+    "Chi2v",
+    "Chi3n",
+    "Chi3v",
+    "Chi4n",
+    "Chi4v",
+    "HallKierAlpha",
+    "Ipc",
+    "Kappa1",
+    "Kappa2",
+    "Kappa3",
+}
 
 def load_and_sample(paths: Iterable[Path | str], n_samples: int = 100_000, seed: int = 1000) -> pd.DataFrame:
     """Load CSV files and randomly sample ``n_samples`` rows from each.
@@ -44,7 +68,7 @@ def load_and_sample(paths: Iterable[Path | str], n_samples: int = 100_000, seed:
 
 
 def featurize(df: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray, List[str]]:
-    """Convert SMILES strings to Morgan fingerprints.
+    """Convert SMILES strings to RDKit molecular descriptors.
 
     Invalid SMILES strings are skipped.
 
@@ -56,9 +80,16 @@ def featurize(df: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray, List[str]]:
     Returns
     -------
     Tuple[np.ndarray, np.ndarray, List[str]]
-        Feature matrix ``X`` of shape ``(n_samples, 2048)``, target vector ``y``
-        and a list of valid SMILES strings.
+        Feature matrix ``X`` of shape ``(n_samples, n_descriptors)``, target vector
+        ``y`` and a list of valid SMILES strings.
     """
+    descriptor_names = [
+        name
+        for name, _ in Descriptors._descList
+        if "EState" not in name and name not in _EXCLUDED_DESCRIPTORS
+    ]
+    calculator = MoleculeDescriptors.MolecularDescriptorCalculator(descriptor_names)
+
     features: List[np.ndarray] = []
     gaps: List[float] = []
     valid_smiles: List[str] = []
@@ -67,9 +98,8 @@ def featurize(df: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray, List[str]]:
         mol = Chem.MolFromSmiles(smiles)
         if mol is None:
             continue
-        fp = AllChem.GetMorganFingerprintAsBitVect(mol, radius=2, nBits=2048)
-        arr = np.zeros((2048,), dtype=int)
-        DataStructs.ConvertToNumpyArray(fp, arr)
+        desc = calculator.CalcDescriptors(mol)
+        arr = np.nan_to_num(np.array(desc, dtype=float), nan=0.0, posinf=0.0, neginf=0.0)
         features.append(arr)
         gaps.append(gap)
         valid_smiles.append(smiles)
